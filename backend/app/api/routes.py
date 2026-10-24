@@ -25,7 +25,7 @@ def get_available_dates():
 
 @router.get("/day-ahead", response_model=DayAheadDecisionResponse)
 async def get_day_ahead_analysis(
-    settlement_date: str = Query("2026-01-15", regex=r"^\d{4}-\d{2}-\d{2}$", description="Settlement delivery date (YYYY-MM-DD)"),
+    settlement_date: str = Query("2026-01-15", pattern=r"^\d{4}-\d{2}-\d{2}$", description="Settlement delivery date (YYYY-MM-DD)"),
     cut_off_hour: int = Query(11, ge=0, le=23, description="Day-Ahead Gate Closure hour on D-1 (0-23 UTC)")
 ):
     """
@@ -36,6 +36,10 @@ async def get_day_ahead_analysis(
         # Fetch actuals & forecasts
         actuals_df = await elexon_service.fetch_actual_wind(settlement_date)
         forecasts_df = await elexon_service.fetch_day_ahead_forecasts(settlement_date, cut_off_hour)
+
+        # Normalize timestamps to UTC to avoid timezone alignment issues
+        actuals_df["start_time"] = pd.to_datetime(actuals_df["start_time"], utc=True)
+        forecasts_df["start_time"] = pd.to_datetime(forecasts_df["start_time"], utc=True)
 
         # Merge on start_time
         merged = pd.merge(actuals_df, forecasts_df, on="start_time", how="inner")
@@ -68,6 +72,8 @@ async def get_monthly_summary(
     for d in sample_dates[:7]:  # Sample first week for fast overview
         actuals_df = await elexon_service.fetch_actual_wind(d)
         forecasts_df = await elexon_service.fetch_day_ahead_forecasts(d, 11)
+        actuals_df["start_time"] = pd.to_datetime(actuals_df["start_time"], utc=True)
+        forecasts_df["start_time"] = pd.to_datetime(forecasts_df["start_time"], utc=True)
         merged = pd.merge(actuals_df, forecasts_df, on="start_time", how="inner")
         metrics = analytics_service.calculate_metrics(merged)
         daily_summaries.append({

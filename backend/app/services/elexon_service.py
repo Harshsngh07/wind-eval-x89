@@ -1,6 +1,6 @@
 import httpx
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 import logging
 
@@ -28,7 +28,7 @@ class ElexonService:
             "format": "json"
         }
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.fuelhh_endpoint, params=params)
                 if response.status_code == 200:
                     data = response.json()
@@ -36,16 +36,18 @@ class ElexonService:
                     # Filter for fuelType == 'WIND'
                     wind_records = [
                         {
-                            "start_time": pd.to_datetime(r.get("startTime")),
+                            "start_time": pd.to_datetime(r.get("startTime"), utc=True),
                             "actual_generation": float(r.get("generation", 0.0))
                         }
                         for r in records
                         if str(r.get("fuelType")).upper() == "WIND"
                     ]
                     if wind_records:
-                        return pd.DataFrame(wind_records)
+                        df = pd.DataFrame(wind_records)
+                        df["start_time"] = pd.to_datetime(df["start_time"], utc=True)
+                        return df
         except Exception as e:
-            logger.warning(f"Error fetching actuals from Elexon API: {e}. Generating deterministic January 2026 baseline.")
+            logger.warning(f"Error fetching actuals from Elexon API: {e}. Using deterministic January 2026 baseline.")
 
         # Fallback generator for January 2026 dates (ensures app works smoothly during evaluation)
         return self._generate_fallback_actuals(settlement_date)
@@ -66,20 +68,24 @@ class ElexonService:
                 "settlementDateTo": settlement_date,
                 "format": "json"
             }
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.windfor_endpoint, params=params)
                 if response.status_code == 200:
                     data = response.json()
                     records = data if isinstance(data, list) else data.get("data", [])
                     
                     target_date = datetime.strptime(settlement_date, "%Y-%m-%d").date()
-                    cut_off_dt = datetime.combine(target_date - timedelta(days=1), datetime.min.time()) + timedelta(hours=cut_off_hour)
+                    cut_off_dt = datetime.combine(
+                        target_date - timedelta(days=1), 
+                        datetime.min.time(), 
+                        tzinfo=timezone.utc
+                    ) + timedelta(hours=cut_off_hour)
 
                     filtered = []
                     for r in records:
-                        pub_time = pd.to_datetime(r.get("publishTime"))
-                        start_time = pd.to_datetime(r.get("startTime"))
-                        if pub_time.tz_localize(None) <= cut_off_dt:
+                        pub_time = pd.to_datetime(r.get("publishTime"), utc=True)
+                        start_time = pd.to_datetime(r.get("startTime"), utc=True)
+                        if pub_time <= cut_off_dt:
                             filtered.append({
                                 "start_time": start_time,
                                 "publish_time": pub_time,
@@ -87,17 +93,18 @@ class ElexonService:
                             })
                     if filtered:
                         df = pd.DataFrame(filtered)
+                        df["start_time"] = pd.to_datetime(df["start_time"], utc=True)
                         # Keep latest published forecast per start_time
                         df = df.sort_values("publish_time").groupby("start_time").last().reset_index()
                         return df
         except Exception as e:
-            logger.warning(f"Error fetching forecasts from Elexon: {e}. Generating deterministic January 2026 baseline.")
+            logger.warning(f"Error fetching forecasts from Elexon: {e}. Using deterministic January 2026 baseline.")
 
         return self._generate_fallback_forecasts(settlement_date, cut_off_hour)
 
     def _generate_fallback_actuals(self, settlement_date: str) -> pd.DataFrame:
         """Deterministic generator for January 2026 actuals for demo/testing resilience."""
-        base_dt = datetime.strptime(settlement_date, "%Y-%m-%d")
+        base_dt = datetime.strptime(settlement_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         records = []
         import math
         day_seed = base_dt.day
@@ -109,12 +116,18 @@ class ElexonService:
                 "start_time": dt,
                 "actual_generation": round(max(gen, 500.0), 2)
             })
-        return pd.DataFrame(records)
+        df = pd.DataFrame(records)
+        df["start_time"] = pd.to_datetime(df["start_time"], utc=True)
+        return df
 
     def _generate_fallback_forecasts(self, settlement_date: str, cut_off_hour: int) -> pd.DataFrame:
         """Deterministic generator for January 2026 day-ahead forecasts."""
-        base_dt = datetime.strptime(settlement_date, "%Y-%m-%d")
-        cut_off_dt = datetime.combine(base_dt.date() - timedelta(days=1), datetime.min.time()) + timedelta(hours=cut_off_hour)
+        base_dt = datetime.strptime(settlement_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        cut_off_dt = datetime.combine(
+            base_dt.date() - timedelta(days=1), 
+            datetime.min.time(), 
+            tzinfo=timezone.utc
+        ) + timedelta(hours=cut_off_hour)
         records = []
         import math
         day_seed = base_dt.day
@@ -127,7 +140,9 @@ class ElexonService:
                 "publish_time": cut_off_dt,
                 "forecast_generation": round(max(gen, 400.0), 2)
             })
-        return pd.DataFrame(records)
+        df = pd.DataFrame(records)
+        df["start_time"] = pd.to_datetime(df["start_time"], utc=True)
+        return df
 
 
 elexon_service = ElexonService()
