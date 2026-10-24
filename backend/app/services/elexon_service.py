@@ -28,7 +28,7 @@ class ElexonService:
             "format": "json"
         }
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(self.fuelhh_endpoint, params=params)
                 if response.status_code == 200:
                     data = response.json()
@@ -59,38 +59,44 @@ class ElexonService:
     ) -> pd.DataFrame:
         """
         Fetch forecasts published for delivery date where publishTime <= D-1 at cut_off_hour UTC.
-        For each 30-min settlement period on settlement_date, picks the latest forecast
+        For each settlement period on settlement_date, picks the latest forecast
         available prior to the day-ahead gate closure.
         """
         try:
+            target_date = datetime.strptime(settlement_date, "%Y-%m-%d").date()
+            cut_off_dt = datetime.combine(
+                target_date - timedelta(days=1), 
+                datetime.min.time(), 
+                tzinfo=timezone.utc
+            ) + timedelta(hours=cut_off_hour)
+
+            # Query WINDFOR by publish window up to the D-1 cut-off hour
+            pub_from = (target_date - timedelta(days=3)).strftime("%Y-%m-%d") + "T00:00:00Z"
+            pub_to = cut_off_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
             params = {
-                "settlementDateFrom": settlement_date,
-                "settlementDateTo": settlement_date,
+                "publishDateTimeFrom": pub_from,
+                "publishDateTimeTo": pub_to,
                 "format": "json"
             }
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(self.windfor_endpoint, params=params)
                 if response.status_code == 200:
                     data = response.json()
                     records = data if isinstance(data, list) else data.get("data", [])
                     
-                    target_date = datetime.strptime(settlement_date, "%Y-%m-%d").date()
-                    cut_off_dt = datetime.combine(
-                        target_date - timedelta(days=1), 
-                        datetime.min.time(), 
-                        tzinfo=timezone.utc
-                    ) + timedelta(hours=cut_off_hour)
-
                     filtered = []
                     for r in records:
-                        pub_time = pd.to_datetime(r.get("publishTime"), utc=True)
-                        start_time = pd.to_datetime(r.get("startTime"), utc=True)
-                        if pub_time <= cut_off_dt:
-                            filtered.append({
-                                "start_time": start_time,
-                                "publish_time": pub_time,
-                                "forecast_generation": float(r.get("generation", 0.0))
-                            })
+                        s_time_raw = r.get("startTime", "")
+                        if s_time_raw.startswith(settlement_date):
+                            pub_time = pd.to_datetime(r.get("publishTime"), utc=True)
+                            start_time = pd.to_datetime(s_time_raw, utc=True)
+                            if pub_time <= cut_off_dt:
+                                filtered.append({
+                                    "start_time": start_time,
+                                    "publish_time": pub_time,
+                                    "forecast_generation": float(r.get("generation", 0.0))
+                                })
                     if filtered:
                         df = pd.DataFrame(filtered)
                         df["start_time"] = pd.to_datetime(df["start_time"], utc=True)
@@ -110,7 +116,6 @@ class ElexonService:
         day_seed = base_dt.day
         for sp in range(48):
             dt = base_dt + timedelta(minutes=30 * sp)
-            # Realistic UK wind generation curve (~6,000 MW - 14,000 MW)
             gen = 8500 + 3500 * math.sin(sp / 7.6 + day_seed) + 500 * math.cos(sp / 3.0)
             records.append({
                 "start_time": dt,
@@ -133,7 +138,6 @@ class ElexonService:
         day_seed = base_dt.day
         for sp in range(48):
             dt = base_dt + timedelta(minutes=30 * sp)
-            # Forecast with plausible variance and day-ahead error distribution
             gen = 8800 + 3300 * math.sin(sp / 7.6 + day_seed) + 600 * math.cos(sp / 3.2)
             records.append({
                 "start_time": dt,
