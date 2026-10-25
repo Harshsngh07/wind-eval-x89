@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: reint-wind-backend
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: CORS_ORIGINS
+        value: '["https://wind-eval-x89.vercel.app","http://localhost:3000","http://localhost:5173","*"]'

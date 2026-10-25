@@ -18,7 +18,7 @@ This application ingests national wind actuals (`FUELHH`) and forecast streams (
 
 ## 2. Live Deployment & Video Pitch
 
-- **Live Application URL**: `[Insert Deployed Vercel / Heroku URL here]`
+- **Live Application URL**: [https://wind-eval-x89.vercel.app/](https://wind-eval-x89.vercel.app/)
 - **Unlisted Video Demo (YouTube)**: `[Insert Unlisted YouTube Link here]`
   - **Part 1 (Client Pitch, < 5 min)**: Executive walkthrough focusing on procurement risk mitigation, error visibility, and reserve allocation.
   - **Part 2 (Tech Lead Architecture Review, < 5 min)**: Technical walkthrough of data pipelines, settlement period alignment, Docker setup, and test suite.
