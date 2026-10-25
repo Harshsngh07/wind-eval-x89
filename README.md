@@ -83,8 +83,8 @@ Ensure Docker and Docker Compose are installed:
 
 ```bash
 # Clone the repository
-git clone https://github.com/<anonymous-repo-name>/<repo>.git
-cd <repo>
+git clone https://github.com/Harshsngh07/wind-eval-x89.git
+cd wind-eval-x89
 
 # Build and start all services
 docker compose up --build
