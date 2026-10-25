@@ -41,9 +41,13 @@ async def get_day_ahead_analysis(
         actuals_df["start_time"] = pd.to_datetime(actuals_df["start_time"], utc=True)
         forecasts_df["start_time"] = pd.to_datetime(forecasts_df["start_time"], utc=True)
 
-        # Merge on start_time
-        merged = pd.merge(actuals_df, forecasts_df, on="start_time", how="inner")
-        merged = merged.sort_values("start_time")
+        actuals_df = actuals_df.sort_values("start_time")
+        forecasts_df = forecasts_df.sort_values("start_time")
+
+        # In UK BMRS, WINDFOR forecasts are published hourly while FUELHH actuals are half-hourly.
+        # merge_asof maps each half-hour settlement period to its corresponding hour's latest forecast.
+        merged = pd.merge_asof(actuals_df, forecasts_df, on="start_time", direction="backward")
+        merged = merged.dropna(subset=["forecast_generation", "actual_generation"])
 
         metrics = analytics_service.calculate_metrics(merged)
         series = analytics_service.prepare_comparison_series(merged)
@@ -74,7 +78,12 @@ async def get_monthly_summary(
         forecasts_df = await elexon_service.fetch_day_ahead_forecasts(d, 11)
         actuals_df["start_time"] = pd.to_datetime(actuals_df["start_time"], utc=True)
         forecasts_df["start_time"] = pd.to_datetime(forecasts_df["start_time"], utc=True)
-        merged = pd.merge(actuals_df, forecasts_df, on="start_time", how="inner")
+        merged = pd.merge_asof(
+            actuals_df.sort_values("start_time"), 
+            forecasts_df.sort_values("start_time"), 
+            on="start_time", 
+            direction="backward"
+        ).dropna(subset=["forecast_generation", "actual_generation"])
         metrics = analytics_service.calculate_metrics(merged)
         daily_summaries.append({
             "date": d,

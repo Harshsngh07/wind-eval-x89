@@ -28,3 +28,20 @@ def test_metrics_calculation_empty():
     assert metrics.mae == 0.0
     assert metrics.rmse == 0.0
     assert metrics.total_records == 0
+
+
+def test_api_health_and_dates():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    health_resp = client.get("/api/health")
+    assert health_resp.status_code == 200
+    assert health_resp.json()["status"] == "ok"
+
+    dates_resp = client.get("/api/dates")
+    assert dates_resp.status_code == 200
+    dates_data = dates_resp.json()
+    assert len(dates_data["dates"]) == 31
+    assert "2026-01-01" in dates_data["dates"]
+    assert "2026-01-31" in dates_data["dates"]
