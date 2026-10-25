@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:match*",
+      "destination": "https://wind-eval-x89.onrender.com/api/:match*"
+    }
+  ]
+}
